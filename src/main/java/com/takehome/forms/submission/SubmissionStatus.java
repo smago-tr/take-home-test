@@ -5,5 +5,10 @@ public enum SubmissionStatus {
 	SCHEMA_INVALID,
 	GEOCODE_FAILED,
 	TRANSFORM_FAILED,
-	READY
+	READY,
+	/**
+	 * Terminal like READY, but this submission never gets its own transformed_forms row —
+	 * its application_reference was already transformed under a different session_id.
+	 */
+	DUPLICATE_APPLICATION
 }
