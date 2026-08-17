@@ -20,6 +20,8 @@ import com.takehome.forms.submission.TransformedFormRepository;
 import com.takehome.forms.transform.FormTransformer;
 import com.takehome.forms.transform.TransformResult;
 import com.takehome.forms.transform.TransformedForm;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,6 +30,10 @@ import java.util.List;
 
 @Service
 public class IngestionService {
+
+	// Log identifiers and error reasons only — never the raw payload or transformed fields
+	// (name, email, DOB, address). This is healthcare data; it doesn't belong in plaintext logs.
+	private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
 
 	private final IngestedFormValidator validator;
 	private final PostcodeLookupClient postcodeLookupClient;
@@ -68,6 +74,7 @@ public class IngestionService {
 		if (isBlank(sessionId) || isBlank(applicationReference)) {
 			// Both columns are NOT NULL on submissions — nowhere to persist this, so it's
 			// malformed rather than a processable-but-invalid submission.
+			log.warn("Rejected malformed /ingest request: missing session_id or application_reference");
 			return new IngestOutcome.MalformedRequest("session_id and application_reference are required");
 		}
 
@@ -75,9 +82,11 @@ public class IngestionService {
 
 		if (submission.status() != SubmissionStatus.RECEIVED) {
 			// Already processed by an earlier delivery of this session_id — don't reprocess.
+			log.info("Duplicate delivery for session_id={}, already {}", sessionId, submission.status());
 			return new IngestOutcome.Processed(submission.status(), submission.lastError());
 		}
 
+		log.info("Ingesting submission {} (session_id={})", submission.id(), sessionId);
 		return process(submission, payload);
 	}
 
@@ -85,6 +94,7 @@ public class IngestionService {
 		ValidationResult validation = validator.validate(payload);
 		if (validation instanceof ValidationResult.Invalid invalid) {
 			String error = String.join("; ", invalid.errors());
+			log.warn("Submission {} failed schema validation: {}", submission.id(), error);
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.SCHEMA_INVALID, error);
 			return new IngestOutcome.Processed(SubmissionStatus.SCHEMA_INVALID, error);
 		}
@@ -93,18 +103,21 @@ public class IngestionService {
 		HttpResponse<GeocodingCoordinates> geocodeResponse = postcodeLookupClient.lookupPostcode(form.address().postcode());
 		if (geocodeResponse.statusCode() != 200 || geocodeResponse.body() == null) {
 			String error = "postcode lookup failed with status " + geocodeResponse.statusCode();
+			log.warn("Submission {} failed geocoding: {}", submission.id(), error);
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.GEOCODE_FAILED, error);
 			return new IngestOutcome.Processed(SubmissionStatus.GEOCODE_FAILED, error);
 		}
 
 		TransformResult transformResult = transformer.transform(form, geocodeResponse.body());
 		if (transformResult instanceof TransformResult.Failure failure) {
+			log.warn("Submission {} failed transform: {}", submission.id(), failure.reason());
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.TRANSFORM_FAILED, failure.reason());
 			return new IngestOutcome.Processed(SubmissionStatus.TRANSFORM_FAILED, failure.reason());
 		}
 		TransformedForm transformed = ((TransformResult.Success) transformResult).form();
 
 		SubmissionStatus finalStatus = persistTransformed(submission.id(), transformed);
+		log.info("Submission {} reached {}", submission.id(), finalStatus);
 		sendNotificationEmail(submission.id());
 		return new IngestOutcome.Processed(finalStatus, null);
 	}
@@ -132,9 +145,12 @@ public class IngestionService {
 				"A form was ingested (submission " + submissionId + ")"
 		));
 		if (response.statusCode() == 200) {
+			log.info("Notification email sent for submission {}", submissionId);
 			outboxEmailRepository.markSent(email.id());
 		} else {
-			outboxEmailRepository.markFailed(email.id(), "email send failed with status " + response.statusCode());
+			String error = "email send failed with status " + response.statusCode();
+			log.warn("Notification email failed for submission {}: {}", submissionId, error);
+			outboxEmailRepository.markFailed(email.id(), error);
 		}
 	}
 
@@ -143,7 +159,10 @@ public class IngestionService {
 	}
 
 	public RetrySummary retryAll() {
-		return new RetrySummary(retrySubmissions(), retryOutboxEmails());
+		RetrySummary summary = new RetrySummary(retrySubmissions(), retryOutboxEmails());
+		log.info("Retry sweep: {} submissions retried, {} emails retried",
+				summary.submissionsRetried(), summary.emailsRetried());
+		return summary;
 	}
 
 	// Re-runs the same process() pipeline against the stored raw_payload — a submission that
