@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -194,11 +195,37 @@ class IngestionServiceTest {
 
 		RetrySummary summary = service.retryAll();
 
-		assertThat(summary.submissionsRetried()).isEqualTo(2);
+		assertThat(summary.submissions()).hasSize(2);
+		assertThat(summary.submissionsSucceeded()).isZero();
+		assertThat(summary.submissionsFailed()).isEqualTo(2);
+		assertThat(summary.submissions()).extracting(RetryItemResult::submissionId, RetryItemResult::status)
+				.containsExactlyInAnyOrder(tuple(1L, "ERROR"), tuple(2L, "SCHEMA_INVALID"));
 		verify(submissionRepository).incrementRetryCount(1L);
 		verify(submissionRepository).incrementRetryCount(2L);
 		verify(submissionRepository).updateStatus(2L, SubmissionStatus.SCHEMA_INVALID, "still broken");
 		verify(submissionRepository, never()).updateStatus(eq(1L), any(), anyString());
+	}
+
+	@Test
+	void successfulRetryReportsSucceededWithApplicationReference() {
+		Submission submission = TestSubmissions.withStatus(1, "sid", "APP-1", SubmissionStatus.GEOCODE_FAILED);
+		TransformedForm transformed = TestTransformedForms.withSessionAndApplication("sid", "APP-1");
+		when(submissionRepository.findNeedingRetry()).thenReturn(List.of(submission));
+		when(outboxEmailRepository.findUndelivered()).thenReturn(List.of());
+		when(validator.validate(any())).thenReturn(new ValidationResult.Valid(TestIngestedForms.valid()));
+		when(postcodeLookupClient.lookupPostcode(anyString()))
+				.thenReturn(new HttpResponse<>(200, new GeocodingCoordinates(1, 2)));
+		when(transformer.transform(any(), any())).thenReturn(new TransformResult.Success(transformed));
+		when(transformedFormRepository.insertUnlessApplicationAlreadyTransformed(1L, transformed)).thenReturn(true);
+		when(outboxEmailRepository.findBySubmissionId(1L)).thenReturn(
+				Optional.of(new OutboxEmail(10, 1, EmailStatus.PENDING, 0, null, OffsetDateTime.now(), null)));
+		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
+
+		RetrySummary summary = service.retryAll();
+
+		assertThat(summary.submissionsSucceeded()).isEqualTo(1);
+		assertThat(summary.submissions()).containsExactly(
+				new RetryItemResult(1L, "APP-1", true, "READY", null));
 	}
 
 	@Test

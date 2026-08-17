@@ -28,7 +28,9 @@ public class RetryController {
 
 		RetrySummary summary = ingestionService.retryAll();
 		return ResponseEntity.ok(Map.of(
-				"submissionsRetried", summary.submissionsRetried(),
+				"submissionsSucceeded", summary.submissionsSucceeded(),
+				"submissionsFailed", summary.submissionsFailed(),
+				"submissions", summary.submissions(),
 				"emailsRetried", summary.emailsRetried()
 		));
 	}

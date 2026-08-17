@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -159,8 +160,9 @@ public class IngestionService {
 
 	public RetrySummary retryAll() {
 		RetrySummary summary = new RetrySummary(retrySubmissions(), retryOutboxEmails());
-		log.info("Retry sweep: {} submissions retried, {} emails retried",
-				summary.submissionsRetried(), summary.emailsRetried());
+		log.info("Retry sweep: {} submissions retried ({} succeeded, {} failed), {} emails retried",
+				summary.submissions().size(), summary.submissionsSucceeded(), summary.submissionsFailed(),
+				summary.emailsRetried());
 		return summary;
 	}
 
@@ -168,18 +170,26 @@ public class IngestionService {
 	// now succeeds (e.g. after a code fix) goes through persistTransformed()/outbox exactly as
 	// it would have on first ingest. Each submission is isolated in its own try/catch — one
 	// failing (e.g. a rare concurrent-retry race) must not abort the sweep for the rest.
-	private int retrySubmissions() {
+	private List<RetryItemResult> retrySubmissions() {
 		List<Submission> needingRetry = submissionRepository.findNeedingRetry();
+		List<RetryItemResult> results = new ArrayList<>();
 		for (Submission submission : needingRetry) {
 			submissionRepository.incrementRetryCount(submission.id());
 			try {
-				process(submission, objectMapper.readTree(submission.rawPayload()));
+				IngestOutcome.Processed outcome = (IngestOutcome.Processed)
+						process(submission, objectMapper.readTree(submission.rawPayload()));
+				boolean succeeded = outcome.status() == SubmissionStatus.READY
+						|| outcome.status() == SubmissionStatus.DUPLICATE_APPLICATION;
+				results.add(new RetryItemResult(submission.id(), submission.applicationReference(),
+						succeeded, outcome.status().name(), outcome.error()));
 			} catch (Exception e) {
 				log.error("Retry failed for submission {}, continuing with the rest of the sweep",
 						submission.id(), e);
+				results.add(new RetryItemResult(submission.id(), submission.applicationReference(),
+						false, "ERROR", e.getMessage()));
 			}
 		}
-		return needingRetry.size();
+		return results;
 	}
 
 	// Same isolation as retrySubmissions() — one email failing to (re)send must not stop the
