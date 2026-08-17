@@ -52,4 +52,19 @@ class TransformedFormRepositoryTest extends AbstractIntegrationTest {
 		assertThat(first).isTrue();
 		assertThat(second).isTrue();
 	}
+
+	@Test
+	void secondInsertForSameSubmissionIdDoesNotThrow() {
+		// Simulates two /retry sweeps racing on the exact same submission — a different unique
+		// constraint (submission_id) than the application_reference case above, must not crash.
+		Submission submission = submissionRepository.findOrCreate("session-1", "APP-1", "{}");
+
+		boolean first = transformedFormRepository.insertUnlessApplicationAlreadyTransformed(
+				submission.id(), TestTransformedForms.withSessionAndApplication("session-1", "APP-1"));
+		boolean second = transformedFormRepository.insertUnlessApplicationAlreadyTransformed(
+				submission.id(), TestTransformedForms.withSessionAndApplication("session-1", "APP-1"));
+
+		assertThat(first).isTrue();
+		assertThat(second).isFalse();
+	}
 }

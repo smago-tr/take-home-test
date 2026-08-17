@@ -180,4 +180,40 @@ class IngestionServiceTest {
 		assertThat(((IngestOutcome.Processed) outcome).status()).isEqualTo(SubmissionStatus.DUPLICATE_APPLICATION);
 		verify(submissionRepository).updateStatus(1L, SubmissionStatus.DUPLICATE_APPLICATION, null);
 	}
+
+	@Test
+	void oneSubmissionFailingDuringRetryDoesNotAbortTheRest() {
+		Submission first = TestSubmissions.withStatus(1, "s1", "r1", SubmissionStatus.GEOCODE_FAILED);
+		Submission second = TestSubmissions.withStatus(2, "s2", "r2", SubmissionStatus.GEOCODE_FAILED);
+		when(submissionRepository.findNeedingRetry()).thenReturn(List.of(first, second));
+		when(outboxEmailRepository.findUndelivered()).thenReturn(List.of());
+		// First call (for `first`) blows up unexpectedly; second call (for `second`) behaves normally.
+		when(validator.validate(any()))
+				.thenThrow(new RuntimeException("boom"))
+				.thenReturn(new ValidationResult.Invalid(List.of("still broken")));
+
+		RetrySummary summary = service.retryAll();
+
+		assertThat(summary.submissionsRetried()).isEqualTo(2);
+		verify(submissionRepository).incrementRetryCount(1L);
+		verify(submissionRepository).incrementRetryCount(2L);
+		verify(submissionRepository).updateStatus(2L, SubmissionStatus.SCHEMA_INVALID, "still broken");
+		verify(submissionRepository, never()).updateStatus(eq(1L), any(), anyString());
+	}
+
+	@Test
+	void oneEmailFailingDuringRetryDoesNotAbortTheRest() {
+		when(submissionRepository.findNeedingRetry()).thenReturn(List.of());
+		OutboxEmail first = new OutboxEmail(10, 1, EmailStatus.FAILED, 1, "prev error", OffsetDateTime.now(), null);
+		OutboxEmail second = new OutboxEmail(11, 2, EmailStatus.FAILED, 1, "prev error", OffsetDateTime.now(), null);
+		when(outboxEmailRepository.findUndelivered()).thenReturn(List.of(first, second));
+		when(outboxEmailRepository.findBySubmissionId(1L)).thenThrow(new RuntimeException("boom"));
+		when(outboxEmailRepository.findBySubmissionId(2L)).thenReturn(Optional.of(second));
+		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
+
+		RetrySummary summary = service.retryAll();
+
+		assertThat(summary.emailsRetried()).isEqualTo(2);
+		verify(outboxEmailRepository).markSent(11L);
+	}
 }

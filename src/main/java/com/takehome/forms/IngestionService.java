@@ -1,6 +1,5 @@
 package com.takehome.forms;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.takehome.forms.ingest.IngestedForm;
@@ -167,25 +166,33 @@ public class IngestionService {
 
 	// Re-runs the same process() pipeline against the stored raw_payload — a submission that
 	// now succeeds (e.g. after a code fix) goes through persistTransformed()/outbox exactly as
-	// it would have on first ingest.
+	// it would have on first ingest. Each submission is isolated in its own try/catch — one
+	// failing (e.g. a rare concurrent-retry race) must not abort the sweep for the rest.
 	private int retrySubmissions() {
 		List<Submission> needingRetry = submissionRepository.findNeedingRetry();
 		for (Submission submission : needingRetry) {
 			submissionRepository.incrementRetryCount(submission.id());
 			try {
 				process(submission, objectMapper.readTree(submission.rawPayload()));
-			} catch (JsonProcessingException e) {
-				// Can't happen — raw_payload was stored as JSON we produced ourselves.
-				throw new IllegalStateException("stored raw_payload is not valid JSON", e);
+			} catch (Exception e) {
+				log.error("Retry failed for submission {}, continuing with the rest of the sweep",
+						submission.id(), e);
 			}
 		}
 		return needingRetry.size();
 	}
 
+	// Same isolation as retrySubmissions() — one email failing to (re)send must not stop the
+	// rest of the sweep from being attempted.
 	private int retryOutboxEmails() {
 		List<OutboxEmail> undelivered = outboxEmailRepository.findUndelivered();
 		for (OutboxEmail email : undelivered) {
-			sendNotificationEmail(email.submissionId());
+			try {
+				sendNotificationEmail(email.submissionId());
+			} catch (Exception e) {
+				log.error("Retry failed for outbox email of submission {}, continuing with the rest of the sweep",
+						email.submissionId(), e);
+			}
 		}
 		return undelivered.size();
 	}
