@@ -7,15 +7,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
 
-/**
- * Base class for tests that need a real Postgres instance (per "we expect you to use an actual
- * database"). Connects to the docker-compose Postgres directly (run `docker compose up -d`
- * first) rather than a Testcontainers-managed instance: on this machine's local Docker setup
- * (Rancher Desktop), freshly-created ephemeral containers' dynamically-published ports were not
- * reliably reachable from the host — even Testcontainers' own Ryuk sidecar container failed to
- * connect — so the persistent docker-compose container is used instead. Still a real Postgres,
- * just not spun up fresh per test run; each test gets a clean slate via resetDatabase() instead.
- */
+// Connects to the docker-compose Postgres (`docker compose up -d`) rather than Testcontainers —
+// dynamically-published container ports weren't reliably reachable on this Docker setup.
+// Each test gets a clean slate via resetDatabase() instead of a fresh container per run.
 @SpringBootTest
 public abstract class AbstractIntegrationTest {
 

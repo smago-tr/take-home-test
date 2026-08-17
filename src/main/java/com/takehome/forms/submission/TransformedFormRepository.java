@@ -15,12 +15,8 @@ public class TransformedFormRepository {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	/**
-	 * Inserts the transformed form for this submission, unless another submission's
-	 * application_reference already has one — in which case nothing is written and this
-	 * returns false, so the caller can mark this submission DUPLICATE_APPLICATION instead
-	 * of READY rather than handing the FORM-BOT the same application twice.
-	 */
+	// Returns false (nothing written) if another submission's application_reference already
+	// has a row here, so the caller can mark this one DUPLICATE_APPLICATION instead of READY.
 	public boolean insertUnlessApplicationAlreadyTransformed(long submissionId, TransformedForm form) {
 		List<Long> inserted = jdbcTemplate.query(
 				"INSERT INTO transformed_forms (submission_id, session_id, application_reference, first_name, " +

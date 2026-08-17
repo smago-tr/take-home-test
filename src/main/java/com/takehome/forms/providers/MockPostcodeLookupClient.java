@@ -4,11 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * Mock implementation of an external geocoding provider (e.g. ideal-postcodes).
- * Simulates network latency and a ~5% failure rate, matching the provided
- * TypeScript mock this was ported from.
- */
+// Mock geocoding provider — ~5% failure rate and simulated latency, ported from the given TS mock.
 @Component
 public class MockPostcodeLookupClient implements PostcodeLookupClient {
 

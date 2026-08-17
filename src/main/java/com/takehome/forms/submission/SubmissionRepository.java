@@ -31,12 +31,8 @@ public class SubmissionRepository {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	/**
-	 * Atomically inserts a new submission, or — if session_id was already seen (the 3rd party
-	 * doesn't guarantee exactly-once delivery) — returns the existing row untouched. Uses
-	 * INSERT ... ON CONFLICT rather than SELECT-then-INSERT to avoid a race between two
-	 * concurrent deliveries of the same session_id.
-	 */
+	// ON CONFLICT DO NOTHING rather than SELECT-then-INSERT, to avoid a race between two
+	// concurrent deliveries of the same session_id.
 	public Submission findOrCreate(String sessionId, String applicationReference, String rawPayloadJson) {
 		List<Submission> inserted = jdbcTemplate.query(
 				"INSERT INTO submissions (session_id, application_reference, raw_payload) " +

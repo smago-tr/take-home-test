@@ -54,9 +54,7 @@ public class IngestedFormValidator {
     private record Result(String addressLine1, String addressLine2, String addressLine3, String postcode, String country) {
     }
 
-    /**
-	 * path(field) never returns a real null (MissingNode instead), so the call is safe
-	 */
+    // path(field) never returns a real null (MissingNode instead), so this is safe.
 	private static String requireText(JsonNode node, String field, List<String> errors, String label) {
 		String value = node.path(field).asText(null);
 		if (value == null || value.isBlank()) {

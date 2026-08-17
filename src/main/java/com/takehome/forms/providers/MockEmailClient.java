@@ -4,11 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * Mock implementation of an external email provider (e.g. SendGrid).
- * Simulates network latency and a ~5% failure rate, matching the provided
- * TypeScript mock this was ported from.
- */
+// Mock email provider — ~5% failure rate and simulated latency, ported from the given TS mock.
 @Component
 public class MockEmailClient implements EmailClient {
 
