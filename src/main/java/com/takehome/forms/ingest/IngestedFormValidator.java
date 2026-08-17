@@ -27,26 +27,34 @@ public class IngestedFormValidator {
 			errors.add("gender: unrecognised value '" + gender + "'");
 		}
 
-		JsonNode addressNode = payload.path("address");
-		String addressLine1 = requireText(addressNode, "address_line_1", errors, "address.address_line_1");
-		String addressLine2 = requireText(addressNode, "address_line_2", errors, "address.address_line_2");
-		String addressLine3 = addressNode.path("address_line_3").asText(null);
-		String postcode = requireText(addressNode, "postcode", errors, "address.postcode");
-		String country = requireText(addressNode, "country", errors, "address.country");
+        Result validateAddress = validateAddress(payload, errors);
 
-		if (!errors.isEmpty()) {
+        if (!errors.isEmpty()) {
 			return new ValidationResult.Invalid(errors);
 		}
 
 		IngestedForm form = new IngestedForm(
 				sessionId, applicationReference, name, email, gender, dateOfBirth,
 				phoneNumber, mobileNumber,
-				new IngestedForm.Address(addressLine1, addressLine2, addressLine3, postcode, country)
+				new IngestedForm.Address(validateAddress.addressLine1(), validateAddress.addressLine2(), validateAddress.addressLine3(), validateAddress.postcode(), validateAddress.country())
 		);
 		return new ValidationResult.Valid(form);
 	}
 
-	/**
+    private static Result validateAddress(JsonNode payload, List<String> errors) {
+        JsonNode addressNode = payload.path("address");
+        String addressLine1 = requireText(addressNode, "address_line_1", errors, "address.address_line_1");
+        String addressLine2 = requireText(addressNode, "address_line_2", errors, "address.address_line_2");
+        String addressLine3 = addressNode.path("address_line_3").asText(null);
+        String postcode = requireText(addressNode, "postcode", errors, "address.postcode");
+        String country = requireText(addressNode, "country", errors, "address.country");
+        return new Result(addressLine1, addressLine2, addressLine3, postcode, country);
+    }
+
+    private record Result(String addressLine1, String addressLine2, String addressLine3, String postcode, String country) {
+    }
+
+    /**
 	 * path(field) never returns a real null (MissingNode instead), so the call is safe
 	 */
 	private static String requireText(JsonNode node, String field, List<String> errors, String label) {
