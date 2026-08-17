@@ -35,6 +35,48 @@ docker compose up -d      # start Postgres — required before bootRun AND test
 
 Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
 
+## Design decisions
+
+**Schema.** Three tables, separating untrusted input from derived output: `submissions` holds
+whatever the 3rd party actually sent (`raw_payload JSONB`, tolerant of schema drift) plus a
+status/retry tracker; `transformed_forms` and `outbox_emails` each carry a `UNIQUE` FK back to
+`submissions`, so the database itself — not application logic — guarantees a submission is never
+transformed or emailed twice.
+
+**Dedup is two different problems.** `session_id UNIQUE` on `submissions` handles the 3rd party's
+"doesn't guarantee exactly-once delivery" — a redelivered `session_id` short-circuits to the
+existing outcome without reprocessing. Separately, `application_reference UNIQUE` on
+`transformed_forms` handles a customer resubmitting under a *new* `session_id` — the DB rejects a
+second transform for an application already handled elsewhere, and that submission is marked
+`DUPLICATE_APPLICATION` (a valid outcome, not a failure).
+
+**Retry replays the stored payload.** `/retry` re-runs the exact same validate → geocode →
+transform → persist → outbox pipeline against each non-terminal submission's `raw_payload`. A
+`SCHEMA_INVALID` submission correctly stays failed until the validation code actually changes; a
+transient `GEOCODE_FAILED` can resolve on its own. Each submission (and each undelivered email) is
+processed in its own try/catch, so one failure doesn't abort the rest of the sweep, and the
+response reports each submission's outcome individually rather than just a count. Behind a shared
+`X-API-Key` header, not a full auth framework — this is an internal ops action, not something the
+3rd party calls, so it needs some guard but not that much ceremony.
+
+**Guaranteed email uses the outbox pattern.** Marking a submission `READY` and recording that it
+owes a notification email happen in one transaction, so a crash between "transform succeeded" and
+"we noted an email is owed" can't lose the email. The actual send happens after that transaction
+commits (never inside an open DB transaction) and gets an at-least-once guarantee, not
+exactly-once — retrying a failed send can't be avoided without an idempotency key the mock email
+provider doesn't support, so a rare duplicate internal notification is an accepted trade-off.
+
+**Known limitations, disclosed rather than hidden:**
+- Tests connect to the docker-compose Postgres directly rather than Testcontainers — on this
+  development machine's Docker setup, ephemeral containers' dynamically-published ports weren't
+  reliably reachable from the host.
+- A missing `session_id`/`application_reference` is treated as a malformed request (400), not a
+  processable-but-invalid submission — both columns are `NOT NULL`, so there's nowhere to persist
+  one without the other.
+- Only `spring-boot-starter-actuator`'s baseline (`/actuator/health`, Micrometer) is wired up;
+  custom business metrics (failure rate by status, retry queue depth) would be the natural next
+  step with more time.
+
 How to submit
 - The email sent to you has a unique submission link, which will take you to a submission portal
 - Please submit on the portal: a link to your repository and a link to a 5 minute (max) loom which explains your code and some of your design decisions
