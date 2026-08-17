@@ -1,6 +1,8 @@
 package com.takehome.forms;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.takehome.forms.ingest.IngestedForm;
 import com.takehome.forms.ingest.IngestedFormValidator;
 import com.takehome.forms.ingest.ValidationResult;
@@ -22,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
+
 @Service
 public class IngestionService {
 
@@ -32,6 +36,7 @@ public class IngestionService {
 	private final SubmissionRepository submissionRepository;
 	private final TransformedFormRepository transformedFormRepository;
 	private final OutboxEmailRepository outboxEmailRepository;
+	private final ObjectMapper objectMapper;
 	private final TransactionTemplate transactionTemplate;
 
 	public IngestionService(
@@ -42,6 +47,7 @@ public class IngestionService {
 			SubmissionRepository submissionRepository,
 			TransformedFormRepository transformedFormRepository,
 			OutboxEmailRepository outboxEmailRepository,
+			ObjectMapper objectMapper,
 			PlatformTransactionManager transactionManager
 	) {
 		this.validator = validator;
@@ -51,6 +57,7 @@ public class IngestionService {
 		this.submissionRepository = submissionRepository;
 		this.transformedFormRepository = transformedFormRepository;
 		this.outboxEmailRepository = outboxEmailRepository;
+		this.objectMapper = objectMapper;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -133,5 +140,34 @@ public class IngestionService {
 
 	private static boolean isBlank(String value) {
 		return value == null || value.isBlank();
+	}
+
+	public RetrySummary retryAll() {
+		return new RetrySummary(retrySubmissions(), retryOutboxEmails());
+	}
+
+	// Re-runs the same process() pipeline against the stored raw_payload — a submission that
+	// now succeeds (e.g. after a code fix) goes through persistTransformed()/outbox exactly as
+	// it would have on first ingest.
+	private int retrySubmissions() {
+		List<Submission> needingRetry = submissionRepository.findNeedingRetry();
+		for (Submission submission : needingRetry) {
+			submissionRepository.incrementRetryCount(submission.id());
+			try {
+				process(submission, objectMapper.readTree(submission.rawPayload()));
+			} catch (JsonProcessingException e) {
+				// Can't happen — raw_payload was stored as JSON we produced ourselves.
+				throw new IllegalStateException("stored raw_payload is not valid JSON", e);
+			}
+		}
+		return needingRetry.size();
+	}
+
+	private int retryOutboxEmails() {
+		List<OutboxEmail> undelivered = outboxEmailRepository.findUndelivered();
+		for (OutboxEmail email : undelivered) {
+			sendNotificationEmail(email.submissionId());
+		}
+		return undelivered.size();
 	}
 }

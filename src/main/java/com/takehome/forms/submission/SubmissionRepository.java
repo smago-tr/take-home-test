@@ -67,4 +67,12 @@ public class SubmissionRepository {
 				id
 		);
 	}
+
+	// READY and DUPLICATE_APPLICATION are terminal — everything else is a candidate for /retry.
+	public List<Submission> findNeedingRetry() {
+		return jdbcTemplate.query(
+				"SELECT " + SELECT_COLUMNS + " FROM submissions WHERE status NOT IN ('READY', 'DUPLICATE_APPLICATION')",
+				ROW_MAPPER
+		);
+	}
 }

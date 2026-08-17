@@ -8,3 +8,6 @@ spring:
     password: ${DB_PASSWORD:takehome}
   flyway:
     locations: classpath:db/migration
+
+retry:
+  api-key: ${RETRY_API_KEY:dev-only-retry-key-change-me}
