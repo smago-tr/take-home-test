@@ -23,6 +23,18 @@ Some notes on this take home
 - You can use AI to aid you in this task but please do not just ask Claude to do the whole thing for you
 - You are free to pick another server technology (e.g. NestJS) if you wish and even pick another language though please check with us first on language.
 
+## Local development
+
+Stack: Java 21, Spring Boot, Gradle, Postgres (via Flyway migrations), Testcontainers for integration tests.
+
+```
+docker compose up -d      # start Postgres
+./gradlew bootRun         # run the app (applies Flyway migrations on startup)
+./gradlew test            # run tests
+```
+
+Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
+
 How to submit
 - The email sent to you has a unique submission link, which will take you to a submission portal
 - Please submit on the portal: a link to your repository and a link to a 5 minute (max) loom which explains your code and some of your design decisions

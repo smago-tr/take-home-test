@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: takehome
+      POSTGRES_PASSWORD: takehome
+      POSTGRES_DB: takehome
+    ports:
+      - "5432:5432"
+    volumes:
+      - takehome_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U takehome -d takehome"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  takehome_pg_data:
