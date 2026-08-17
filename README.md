@@ -25,12 +25,12 @@ Some notes on this take home
 
 ## Local development
 
-Stack: Java 21, Spring Boot, Gradle, Postgres (via Flyway migrations), Testcontainers for integration tests.
+Stack: Java 21, Spring Boot, Gradle, Postgres (via Flyway migrations).
 
 ```
-docker compose up -d      # start Postgres
+docker compose up -d      # start Postgres — required before bootRun AND test
 ./gradlew bootRun         # run the app (applies Flyway migrations on startup)
-./gradlew test            # run tests
+./gradlew test            # run tests (also connects to the docker-compose Postgres)
 ```
 
 Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
