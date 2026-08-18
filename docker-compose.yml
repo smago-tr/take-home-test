@@ -15,5 +15,33 @@ services:
       timeout: 2s
       retries: 15
 
+  # Not started by plain `docker compose up -d` — only with `docker compose --profile observability up -d`,
+  # so the normal dev loop stays fast and doesn't need these running.
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # No extra_hosts override for host.docker.internal — Docker Desktop and Rancher Desktop both
+    # resolve it correctly on their own; forcing it to the generic "host-gateway" value actually
+    # broke resolution on Rancher Desktop (resolved to the bridge gateway instead of the real
+    # host). On plain Linux dockerd (no native resolution), add
+    # `extra_hosts: ["host.docker.internal:host-gateway"]` back if needed.
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
 volumes:
   takehome_pg_data:

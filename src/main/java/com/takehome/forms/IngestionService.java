@@ -10,6 +10,7 @@ import com.takehome.forms.providers.EmailRequest;
 import com.takehome.forms.providers.GeocodingCoordinates;
 import com.takehome.forms.providers.HttpResponse;
 import com.takehome.forms.providers.PostcodeLookupClient;
+import com.takehome.forms.submission.EmailStatus;
 import com.takehome.forms.submission.OutboxEmail;
 import com.takehome.forms.submission.OutboxEmailRepository;
 import com.takehome.forms.submission.Submission;
@@ -19,6 +20,7 @@ import com.takehome.forms.submission.TransformedFormRepository;
 import com.takehome.forms.transform.FormTransformer;
 import com.takehome.forms.transform.TransformResult;
 import com.takehome.forms.transform.TransformedForm;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ public class IngestionService {
 	private final TransformedFormRepository transformedFormRepository;
 	private final OutboxEmailRepository outboxEmailRepository;
 	private final ObjectMapper objectMapper;
+	private final FormsMetrics metrics;
 	private final TransactionTemplate transactionTemplate;
 
 	public IngestionService(
@@ -54,6 +57,7 @@ public class IngestionService {
 			TransformedFormRepository transformedFormRepository,
 			OutboxEmailRepository outboxEmailRepository,
 			ObjectMapper objectMapper,
+			FormsMetrics metrics,
 			PlatformTransactionManager transactionManager
 	) {
 		this.validator = validator;
@@ -64,6 +68,7 @@ public class IngestionService {
 		this.transformedFormRepository = transformedFormRepository;
 		this.outboxEmailRepository = outboxEmailRepository;
 		this.objectMapper = objectMapper;
+		this.metrics = metrics;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -96,6 +101,7 @@ public class IngestionService {
 			String error = String.join("; ", invalid.errors());
 			log.warn("Submission {} failed schema validation: {}", submission.id(), error);
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.SCHEMA_INVALID, error);
+			metrics.recordSubmissionOutcome(SubmissionStatus.SCHEMA_INVALID);
 			return new IngestOutcome.Processed(SubmissionStatus.SCHEMA_INVALID, error);
 		}
 		IngestedForm form = ((ValidationResult.Valid) validation).form();
@@ -105,6 +111,7 @@ public class IngestionService {
 			String error = "postcode lookup failed with status " + geocodeResponse.statusCode();
 			log.warn("Submission {} failed geocoding: {}", submission.id(), error);
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.GEOCODE_FAILED, error);
+			metrics.recordSubmissionOutcome(SubmissionStatus.GEOCODE_FAILED);
 			return new IngestOutcome.Processed(SubmissionStatus.GEOCODE_FAILED, error);
 		}
 
@@ -112,12 +119,14 @@ public class IngestionService {
 		if (transformResult instanceof TransformResult.Failure failure) {
 			log.warn("Submission {} failed transform: {}", submission.id(), failure.reason());
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.TRANSFORM_FAILED, failure.reason());
+			metrics.recordSubmissionOutcome(SubmissionStatus.TRANSFORM_FAILED);
 			return new IngestOutcome.Processed(SubmissionStatus.TRANSFORM_FAILED, failure.reason());
 		}
 		TransformedForm transformed = ((TransformResult.Success) transformResult).form();
 
 		SubmissionStatus finalStatus = persistTransformed(submission.id(), transformed);
 		log.info("Submission {} reached {}", submission.id(), finalStatus);
+		metrics.recordSubmissionOutcome(finalStatus);
 		sendNotificationEmail(submission.id());
 		return new IngestOutcome.Processed(finalStatus, null);
 	}
@@ -147,10 +156,12 @@ public class IngestionService {
 		if (response.statusCode() == 200) {
 			log.info("Notification email sent for submission {}", submissionId);
 			outboxEmailRepository.markSent(email.id());
+			metrics.recordEmailOutcome(EmailStatus.SENT);
 		} else {
 			String error = "email send failed with status " + response.statusCode();
 			log.warn("Notification email failed for submission {}: {}", submissionId, error);
 			outboxEmailRepository.markFailed(email.id(), error);
+			metrics.recordEmailOutcome(EmailStatus.FAILED);
 		}
 	}
 
@@ -159,7 +170,9 @@ public class IngestionService {
 	}
 
 	public RetrySummary retryAll() {
+		Timer.Sample sample = metrics.startRetrySweepTimer();
 		RetrySummary summary = new RetrySummary(retrySubmissions(), retryOutboxEmails());
+		metrics.stopRetrySweepTimer(sample);
 		log.info("Retry sweep: {} submissions retried ({} succeeded, {} failed), {} emails retried",
 				summary.submissions().size(), summary.submissionsSucceeded(), summary.submissionsFailed(),
 				summary.emailsRetried());

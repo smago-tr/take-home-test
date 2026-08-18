@@ -23,6 +23,7 @@ import com.takehome.forms.transform.FormTransformer;
 import com.takehome.forms.transform.TestTransformedForms;
 import com.takehome.forms.transform.TransformResult;
 import com.takehome.forms.transform.TransformedForm;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -69,8 +70,10 @@ class IngestionServiceTest {
 
 	@BeforeEach
 	void setUp() {
+		FormsMetrics metrics = new FormsMetrics(new SimpleMeterRegistry(), submissionRepository);
 		service = new IngestionService(validator, postcodeLookupClient, transformer, emailClient,
-				submissionRepository, transformedFormRepository, outboxEmailRepository, objectMapper, transactionManager);
+				submissionRepository, transformedFormRepository, outboxEmailRepository, objectMapper, metrics,
+				transactionManager);
 	}
 
 	@Test

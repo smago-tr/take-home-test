@@ -11,3 +11,9 @@ spring:
 
 retry:
   api-key: ${RETRY_API_KEY:dev-only-retry-key-change-me}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus

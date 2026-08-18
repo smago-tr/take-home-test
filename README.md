@@ -35,6 +35,17 @@ docker compose up -d      # start Postgres — required before bootRun AND test
 
 Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
 
+### Metrics dashboard (optional)
+
+```
+docker compose --profile observability up -d   # adds Prometheus (:9091) and Grafana (:3000)
+```
+
+Grafana is pre-provisioned — open http://localhost:3000 (anonymous viewer access, or admin/admin)
+and the "Forms Ingestion Pipeline" dashboard is already there: submissions by status, emails by
+status, submissions currently pending retry, and retry sweep duration (p95). Not started by plain
+`docker compose up -d`, so the normal dev loop doesn't need these running.
+
 ## Design decisions
 
 **Schema.** Three tables, separating untrusted input from derived output: `submissions` holds
@@ -73,9 +84,10 @@ provider doesn't support, so a rare duplicate internal notification is an accept
 - A missing `session_id`/`application_reference` is treated as a malformed request (400), not a
   processable-but-invalid submission — both columns are `NOT NULL`, so there's nowhere to persist
   one without the other.
-- Only `spring-boot-starter-actuator`'s baseline (`/actuator/health`, Micrometer) is wired up;
-  custom business metrics (failure rate by status, retry queue depth) would be the natural next
-  step with more time.
+- Metrics cover submission outcomes by status, email outcomes, current pending-retry count, and
+  retry sweep duration — a real production system would likely add more (per-step latency,
+  external dependency error rates) but this covers the questions "is anything stuck?" and "did
+  the 3rd party's schema drift again?"
 
 How to submit
 - The email sent to you has a unique submission link, which will take you to a submission portal
