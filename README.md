@@ -189,12 +189,17 @@ provider doesn't support, so a rare duplicate internal notification is an accept
    currently retain full personal data indefinitely with no purge or anonymization path.
 7. **An OpenAPI spec** for `/ingest` and `/retry`, so the FORM-BOT team (or anyone else
    integrating) has a concrete contract instead of reading the source.
-8. **Event streaming via Kafka** — the outbox pattern here is scoped to one consumer (the
+8. **Alerting on the metrics that already exist** — Prometheus and Grafana are wired up, but
+   nothing pages anyone yet. The natural next step is alert rules (Alertmanager, or Grafana's own
+   alerting) on top of what's already exposed: pending-retry count above a threshold, a spike in
+   `SCHEMA_INVALID` rate (signaling the 3rd party changed their schema again), or retry sweep
+   duration climbing — turning "you'd have to go look at the dashboard" into "you get paged."
+9. **Event streaming via Kafka** — the outbox pattern here is scoped to one consumer (the
    notification email). If the FORM-BOT itself or other services needed to react to a submission
    reaching `READY`, publishing a domain event to Kafka (fed by the same outbox table via CDC, or
    published alongside the transaction) would let those consumers subscribe independently instead
    of every new consumer getting bolted directly into `IngestionService`.
-9. **Analytics visibility in Snowflake (or similar)** — right now the only way to answer "how many
+10. **Analytics visibility in Snowflake (or similar)** — right now the only way to answer "how many
    forms failed last week and why" is to query production Postgres directly, which isn't
    something analytics workloads should compete with the live pipeline for. Streaming
    `submissions`/`transformed_forms` into a warehouse (the same Kafka/CDC pipeline above could
