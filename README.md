@@ -77,6 +77,38 @@ status, submissions currently pending retry, and retry sweep duration (p95). Not
 
 ## Design decisions
 
+### Flow
+
+```mermaid
+flowchart TD
+    A["POST /ingest"] --> B{"session_id and\napplication_reference\npresent?"}
+    B -- No --> B1["400 Malformed"]
+    B -- Yes --> C{"session_id\nalready seen?"}
+    C -- "Yes (terminal)" --> C1["Return existing outcome\n(no reprocessing)"]
+    C -- No --> D{"Validate against\ningested_schema"}
+    D -- Invalid --> D1["SCHEMA_INVALID"]
+    D -- Valid --> E{"Geocode postcode"}
+    E -- Fails --> E1["GEOCODE_FAILED"]
+    E -- Succeeds --> F{"Transform to\ntransformed_schema"}
+    F -- Fails --> F1["TRANSFORM_FAILED"]
+    F -- Succeeds --> G{"application_reference\nalready transformed\nelsewhere?"}
+    G -- Yes --> G1["DUPLICATE_APPLICATION"]
+    G -- No --> H["READY\n(insert transformed_forms +\noutbox_emails PENDING, one transaction)"]
+    H --> I["Send notification email"]
+    I -- Success --> I1["outbox: SENT"]
+    I -- Failure --> I2["outbox: FAILED"]
+
+    D1 -.-> R["POST /retry\n(replays stored raw_payload)"]
+    E1 -.-> R
+    F1 -.-> R
+    R -.-> D
+    I2 -.->|"sweeps undelivered emails"| I
+```
+
+Dashed arrows are what `/retry` does: it doesn't invent a new path, it re-enters the exact same
+pipeline for anything not yet `READY`/`DUPLICATE_APPLICATION`, and separately sweeps any
+`outbox_emails` row that isn't `SENT`.
+
 **Schema.** Three tables, separating untrusted input from derived output: `submissions` holds
 whatever the 3rd party actually sent (`raw_payload JSONB`, tolerant of schema drift) plus a
 status/retry tracker; `transformed_forms` and `outbox_emails` each carry a `UNIQUE` FK back to
