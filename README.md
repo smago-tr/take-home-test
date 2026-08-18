@@ -156,6 +156,37 @@ provider doesn't support, so a rare duplicate internal notification is an accept
   external dependency error rates) but this covers the questions "is anything stuck?" and "did
   the 3rd party's schema drift again?"
 
+**Future improvements** — things I'd build next, not trade-offs already made:
+1. **Concurrency-safe `/retry`** — crash-safe today (the bare `ON CONFLICT DO NOTHING`), but not
+   race-free. A proper fix would "claim" rows atomically (`UPDATE ... SET status = 'RETRYING'
+   WHERE status IN (...) RETURNING *`, or a Postgres advisory lock) so two overlapping sweeps
+   can't grab the same submission.
+2. **Scheduled retry sweeps** instead of a manually-triggered endpoint, so recovery doesn't depend
+   on someone remembering to call `/retry` after a deploy.
+3. **A retry cap / dead-letter state** — `retry_count` grows forever with no ceiling; a submission
+   that can *never* succeed gets reprocessed on every sweep indefinitely. There should be a
+   distinct "needs manual intervention" state after N attempts.
+4. **A circuit breaker around geocoding** (e.g. Resilience4j) — current handling assumes the ~5%
+   failure rate is random per-call. A sustained outage would still make every `/ingest` request
+   wait out the full latency before failing individually, instead of failing fast.
+5. **Proactive schema-drift detection** — validation only reacts to drift by failing. A "shadow"
+   mode that logs unexpected new fields even on an otherwise-successful payload would catch the
+   3rd party changing their schema before it starts breaking things.
+6. **A PII/data-retention policy** — this is healthcare data, and `raw_payload`/`transformed_forms`
+   currently retain full personal data indefinitely with no purge or anonymization path.
+7. **An OpenAPI spec** for `/ingest` and `/retry`, so the FORM-BOT team (or anyone else
+   integrating) has a concrete contract instead of reading the source.
+8. **Event streaming via Kafka** — the outbox pattern here is scoped to one consumer (the
+   notification email). If the FORM-BOT itself or other services needed to react to a submission
+   reaching `READY`, publishing a domain event to Kafka (fed by the same outbox table via CDC, or
+   published alongside the transaction) would let those consumers subscribe independently instead
+   of every new consumer getting bolted directly into `IngestionService`.
+9. **Analytics visibility in Snowflake (or similar)** — right now the only way to answer "how many
+   forms failed last week and why" is to query production Postgres directly, which isn't
+   something analytics workloads should compete with the live pipeline for. Streaming
+   `submissions`/`transformed_forms` into a warehouse (the same Kafka/CDC pipeline above could
+   feed this too) would let the team build reporting without touching the OLTP database.
+
 How to submit
 - The email sent to you has a unique submission link, which will take you to a submission portal
 - Please submit on the portal: a link to your repository and a link to a 5 minute (max) loom which explains your code and some of your design decisions
