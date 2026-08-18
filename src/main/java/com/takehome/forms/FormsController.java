@@ -23,8 +23,8 @@ public class FormsController {
 	public ResponseEntity<Map<String, Object>> ingest(@RequestBody JsonNode payload) {
 		IngestOutcome outcome = ingestionService.ingest(payload);
 
-		if (outcome instanceof IngestOutcome.MalformedRequest malformed) {
-			return ResponseEntity.badRequest().body(Map.of("error", malformed.reason()));
+		if (outcome instanceof IngestOutcome.MalformedRequest(String reason)) {
+			return ResponseEntity.badRequest().body(Map.of("error", reason));
 		}
 
 		IngestOutcome.Processed processed = (IngestOutcome.Processed) outcome;
