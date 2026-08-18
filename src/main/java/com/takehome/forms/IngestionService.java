@@ -97,8 +97,8 @@ public class IngestionService {
 
 	private IngestOutcome process(Submission submission, JsonNode payload) {
 		ValidationResult validation = validator.validate(payload);
-		if (validation instanceof ValidationResult.Invalid invalid) {
-			String error = String.join("; ", invalid.errors());
+		if (validation instanceof ValidationResult.Invalid(List<String> errors)) {
+			String error = String.join("; ", errors);
 			log.warn("Submission {} failed schema validation: {}", submission.id(), error);
 			submissionRepository.updateStatus(submission.id(), SubmissionStatus.SCHEMA_INVALID, error);
 			metrics.recordSubmissionOutcome(SubmissionStatus.SCHEMA_INVALID);
