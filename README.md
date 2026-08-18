@@ -77,7 +77,10 @@ curl -X POST http://localhost:8080/retry -H "X-API-Key: dev-only-retry-key-chang
 ### Metrics dashboard (optional)
 
 ```
-docker compose --profile observability up -d   # adds Prometheus (:9091) and Grafana (:3000)
+docker compose --profile observability up -d     # adds Prometheus (:9091) and Grafana (:3000)
+docker compose --profile observability down       # tear down — must include the profile flag too,
+                                                    # or Postgres stops but Prometheus/Grafana keep
+                                                    # the shared network in use and `down` fails
 ```
 
 Grafana is pre-provisioned — open http://localhost:3000 (anonymous viewer access, or admin/admin)
