@@ -35,6 +35,16 @@ docker compose up -d      # start Postgres — required before bootRun AND test
 
 Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
 
+To clear out data between manual test runs (schema stays, `id` sequences reset to 1):
+
+```bash
+PGPASSWORD=takehome psql -h localhost -U takehome -d takehome \
+  -c "TRUNCATE TABLE submissions, transformed_forms, outbox_emails RESTART IDENTITY CASCADE;"
+```
+
+Connect a GUI client (e.g. DBeaver) with host `localhost`, port `5432`, database/user/password
+all `takehome`.
+
 ### Trying it out
 
 With the app running:
