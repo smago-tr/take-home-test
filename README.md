@@ -77,7 +77,13 @@ status, submissions currently pending retry, and retry sweep duration (p95). Not
 
 ## Design decisions
 
-### Flow
+### High-level overview
+
+![High-level flow: ingest, validate, geocode, transform, persist, and notify, with error/retry paths](docs/high-level-flow.png)
+
+### Detailed flow
+
+Same shape, with the exact failure states and where `/retry` re-enters:
 
 ```mermaid
 flowchart TD
