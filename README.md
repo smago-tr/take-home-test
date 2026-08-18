@@ -35,6 +35,35 @@ docker compose up -d      # start Postgres — required before bootRun AND test
 
 Migrations live in `src/main/resources/db/migration` (`V1__description.sql`, ...).
 
+### Trying it out
+
+With the app running:
+
+```bash
+# Happy path — a given example fixture
+curl -X POST http://localhost:8080/ingest -H "Content-Type: application/json" \
+  -d @src/test/resources/examples/person_one.json
+# => {"status":"READY"}
+
+# Schema drift — missing a required field
+curl -X POST http://localhost:8080/ingest -H "Content-Type: application/json" -d '{
+  "session_id": "demo-1", "application_reference": "GRU-DEMO-001",
+  "name": "No Email", "gender": "male", "date_of_birth": "1990-01-01",
+  "mobile_number": "07123456789",
+  "address": {"address_line_1": "1 St", "address_line_2": "Town", "postcode": "AB1 2CD", "country": "UK"}
+}'
+# => 422 {"status":"SCHEMA_INVALID","error":"email is required"}
+
+# Redelivering the same session_id doesn't reprocess or duplicate anything
+curl -X POST http://localhost:8080/ingest -H "Content-Type: application/json" \
+  -d @src/test/resources/examples/person_one.json
+# => same {"status":"READY"} again
+
+# Sweep everything still failing (after shipping a fix, if that's why it failed)
+curl -X POST http://localhost:8080/retry -H "X-API-Key: dev-only-retry-key-change-me"
+# => {"submissionsSucceeded":0,"submissionsFailed":1,"submissions":[...],"emailsRetried":0}
+```
+
 ### Metrics dashboard (optional)
 
 ```
