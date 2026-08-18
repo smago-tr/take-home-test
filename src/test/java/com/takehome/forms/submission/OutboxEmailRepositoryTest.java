@@ -50,6 +50,20 @@ class OutboxEmailRepositoryTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void markSentClearsAStaleErrorFromAnEarlierFailedAttempt() {
+		Submission submission = submissionRepository.findOrCreate("session-1", "APP-1", "{}");
+		outboxEmailRepository.insertPending(submission.id());
+		OutboxEmail email = outboxEmailRepository.findBySubmissionId(submission.id()).orElseThrow();
+		outboxEmailRepository.markFailed(email.id(), "smtp timeout");
+
+		outboxEmailRepository.markSent(email.id());
+
+		OutboxEmail reloaded = outboxEmailRepository.findBySubmissionId(submission.id()).orElseThrow();
+		assertThat(reloaded.status()).isEqualTo(EmailStatus.SENT);
+		assertThat(reloaded.lastError()).isNull();
+	}
+
+	@Test
 	void markFailedIncrementsAttemptsAndSetsError() {
 		Submission submission = submissionRepository.findOrCreate("session-1", "APP-1", "{}");
 		outboxEmailRepository.insertPending(submission.id());

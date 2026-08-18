@@ -38,8 +38,11 @@ public class OutboxEmailRepository {
 		);
 	}
 
+	// Clears last_error too — otherwise a row that failed once and later succeeded on retry
+	// would show SENT while still carrying the stale error text from the earlier attempt.
 	public void markSent(long id) {
-		jdbcTemplate.update("UPDATE outbox_emails SET status = 'SENT', sent_at = now() WHERE id = ?", id);
+		jdbcTemplate.update(
+				"UPDATE outbox_emails SET status = 'SENT', sent_at = now(), last_error = NULL WHERE id = ?", id);
 	}
 
 	public void markFailed(long id, String error) {
