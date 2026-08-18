@@ -8,6 +8,7 @@ import com.takehome.forms.ingest.TestIngestedForms;
 import com.takehome.forms.ingest.TestPayloads;
 import com.takehome.forms.ingest.ValidationResult;
 import com.takehome.forms.providers.EmailClient;
+import com.takehome.forms.providers.EmailRequest;
 import com.takehome.forms.providers.GeocodingCoordinates;
 import com.takehome.forms.providers.HttpResponse;
 import com.takehome.forms.providers.PostcodeLookupClient;
@@ -27,6 +28,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -155,6 +157,7 @@ class IngestionServiceTest {
 		when(transformedFormRepository.insertUnlessApplicationAlreadyTransformed(1L, transformed)).thenReturn(true);
 		when(outboxEmailRepository.findBySubmissionId(1L)).thenReturn(
 				Optional.of(new OutboxEmail(10, 1, EmailStatus.PENDING, 0, null, OffsetDateTime.now(), null)));
+		when(submissionRepository.findById(1L)).thenReturn(fresh);
 		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
 
 		IngestOutcome outcome = service.ingest(TestPayloads.valid());
@@ -163,6 +166,10 @@ class IngestionServiceTest {
 		verify(submissionRepository).updateStatus(1L, SubmissionStatus.READY, null);
 		verify(outboxEmailRepository).insertPending(1L);
 		verify(outboxEmailRepository).markSent(10L);
+
+		ArgumentCaptor<EmailRequest> emailCaptor = ArgumentCaptor.forClass(EmailRequest.class);
+		verify(emailClient).sendEmail(emailCaptor.capture());
+		assertThat(emailCaptor.getValue().subject()).contains("ref").contains("sid");
 	}
 
 	@Test
@@ -177,6 +184,7 @@ class IngestionServiceTest {
 		when(transformedFormRepository.insertUnlessApplicationAlreadyTransformed(1L, transformed)).thenReturn(false);
 		when(outboxEmailRepository.findBySubmissionId(1L)).thenReturn(
 				Optional.of(new OutboxEmail(10, 1, EmailStatus.PENDING, 0, null, OffsetDateTime.now(), null)));
+		when(submissionRepository.findById(1L)).thenReturn(fresh);
 		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
 
 		IngestOutcome outcome = service.ingest(TestPayloads.valid());
@@ -222,6 +230,7 @@ class IngestionServiceTest {
 		when(transformedFormRepository.insertUnlessApplicationAlreadyTransformed(1L, transformed)).thenReturn(true);
 		when(outboxEmailRepository.findBySubmissionId(1L)).thenReturn(
 				Optional.of(new OutboxEmail(10, 1, EmailStatus.PENDING, 0, null, OffsetDateTime.now(), null)));
+		when(submissionRepository.findById(1L)).thenReturn(submission);
 		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
 
 		RetrySummary summary = service.retryAll();
@@ -239,6 +248,7 @@ class IngestionServiceTest {
 		when(outboxEmailRepository.findUndelivered()).thenReturn(List.of(first, second));
 		when(outboxEmailRepository.findBySubmissionId(1L)).thenThrow(new RuntimeException("boom"));
 		when(outboxEmailRepository.findBySubmissionId(2L)).thenReturn(Optional.of(second));
+		when(submissionRepository.findById(2L)).thenReturn(TestSubmissions.received(2, "s2", "APP-2"));
 		when(emailClient.sendEmail(any())).thenReturn(new HttpResponse<>(200, null));
 
 		RetrySummary summary = service.retryAll();

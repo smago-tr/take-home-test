@@ -107,22 +107,13 @@ public class IngestionService {
 		IngestedForm form = ((ValidationResult.Valid) validation).form();
 
 		HttpResponse<GeocodingCoordinates> geocodeResponse = postcodeLookupClient.lookupPostcode(form.address().postcode());
-		if (geocodeResponse.statusCode() != 200 || geocodeResponse.body() == null) {
-			String error = "postcode lookup failed with status " + geocodeResponse.statusCode();
-			log.warn("Submission {} failed geocoding: {}", submission.id(), error);
-			submissionRepository.updateStatus(submission.id(), SubmissionStatus.GEOCODE_FAILED, error);
-			metrics.recordSubmissionOutcome(SubmissionStatus.GEOCODE_FAILED);
-			return new IngestOutcome.Processed(SubmissionStatus.GEOCODE_FAILED, error);
-		}
+        IngestOutcome.Processed geocodeFailed = getGeocode(submission, geocodeResponse);
+        if (geocodeFailed != null) return geocodeFailed;
 
-		TransformResult transformResult = transformer.transform(form, geocodeResponse.body());
-		if (transformResult instanceof TransformResult.Failure failure) {
-			log.warn("Submission {} failed transform: {}", submission.id(), failure.reason());
-			submissionRepository.updateStatus(submission.id(), SubmissionStatus.TRANSFORM_FAILED, failure.reason());
-			metrics.recordSubmissionOutcome(SubmissionStatus.TRANSFORM_FAILED);
-			return new IngestOutcome.Processed(SubmissionStatus.TRANSFORM_FAILED, failure.reason());
-		}
-		TransformedForm transformed = ((TransformResult.Success) transformResult).form();
+        TransformResult transformResult = transformer.transform(form, geocodeResponse.body());
+        IngestOutcome.Processed transformFailed = getTransformed(submission, transformResult);
+        if (transformFailed != null) return transformFailed;
+        TransformedForm transformed = ((TransformResult.Success) transformResult).form();
 
 		SubmissionStatus finalStatus = persistTransformed(submission.id(), transformed);
 		log.info("Submission {} reached {}", submission.id(), finalStatus);
@@ -131,7 +122,28 @@ public class IngestionService {
 		return new IngestOutcome.Processed(finalStatus, null);
 	}
 
-	// TransactionTemplate, not @Transactional — a same-class call bypasses Spring's proxy and
+    private IngestOutcome.Processed getTransformed(Submission submission, TransformResult transformResult) {
+        if (transformResult instanceof TransformResult.Failure failure) {
+            log.warn("Submission {} failed transform: {}", submission.id(), failure.reason());
+            submissionRepository.updateStatus(submission.id(), SubmissionStatus.TRANSFORM_FAILED, failure.reason());
+            metrics.recordSubmissionOutcome(SubmissionStatus.TRANSFORM_FAILED);
+            return new IngestOutcome.Processed(SubmissionStatus.TRANSFORM_FAILED, failure.reason());
+        }
+        return null;
+    }
+
+    private IngestOutcome.Processed getGeocode(Submission submission, HttpResponse<GeocodingCoordinates> geocodeResponse) {
+        if (geocodeResponse.statusCode() != 200 || geocodeResponse.body() == null) {
+            String error = "postcode lookup failed with status " + geocodeResponse.statusCode();
+            log.warn("Submission {} failed geocoding: {}", submission.id(), error);
+            submissionRepository.updateStatus(submission.id(), SubmissionStatus.GEOCODE_FAILED, error);
+            metrics.recordSubmissionOutcome(SubmissionStatus.GEOCODE_FAILED);
+            return new IngestOutcome.Processed(SubmissionStatus.GEOCODE_FAILED, error);
+        }
+        return null;
+    }
+
+    // TransactionTemplate, not @Transactional — a same-class call bypasses Spring's proxy and
 	// would silently drop the transaction. All three writes commit or none do.
 	private SubmissionStatus persistTransformed(long submissionId, TransformedForm transformed) {
 		return transactionTemplate.execute(status -> {
@@ -147,10 +159,13 @@ public class IngestionService {
 	// the row stays PENDING/FAILED for /retry to pick up later.
 	private void sendNotificationEmail(long submissionId) {
 		OutboxEmail email = outboxEmailRepository.findBySubmissionId(submissionId).orElseThrow();
+		Submission submission = submissionRepository.findById(submissionId);
+		String subject = "Form ingested — application " + submission.applicationReference()
+				+ " (session " + submission.sessionId() + ")";
 		HttpResponse<Void> response = emailClient.sendEmail(new EmailRequest(
 				"happyforms@bots.com",
 				"noreply@ourservice.com",
-				"Form ingested",
+				subject,
 				"A form was ingested (submission " + submissionId + ")"
 		));
 		if (response.statusCode() == 200) {

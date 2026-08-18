@@ -24,6 +24,16 @@ class SubmissionRepositoryTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void findByIdReturnsTheMatchingSubmission() {
+		Submission created = repository.findOrCreate("session-1", "APP-1", "{}");
+
+		Submission found = repository.findById(created.id());
+
+		assertThat(found.sessionId()).isEqualTo("session-1");
+		assertThat(found.applicationReference()).isEqualTo("APP-1");
+	}
+
+	@Test
 	void findOrCreateCreatesSeparateRowsForDifferentSessionIds() {
 		Submission first = repository.findOrCreate("session-1", "APP-1", "{}");
 		Submission second = repository.findOrCreate("session-2", "APP-1", "{}");

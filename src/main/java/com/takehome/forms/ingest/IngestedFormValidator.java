@@ -27,7 +27,7 @@ public class IngestedFormValidator {
 			errors.add("gender: unrecognised value '" + gender + "'");
 		}
 
-        Result validateAddress = validateAddress(payload, errors);
+        ParsedAddress validateAddress = validateAddress(payload, errors);
 
         if (!errors.isEmpty()) {
 			return new ValidationResult.Invalid(errors);
@@ -41,17 +41,17 @@ public class IngestedFormValidator {
 		return new ValidationResult.Valid(form);
 	}
 
-    private static Result validateAddress(JsonNode payload, List<String> errors) {
+    private static ParsedAddress validateAddress(JsonNode payload, List<String> errors) {
         JsonNode addressNode = payload.path("address");
         String addressLine1 = requireText(addressNode, "address_line_1", errors, "address.address_line_1");
         String addressLine2 = requireText(addressNode, "address_line_2", errors, "address.address_line_2");
         String addressLine3 = addressNode.path("address_line_3").asText(null);
         String postcode = requireText(addressNode, "postcode", errors, "address.postcode");
         String country = requireText(addressNode, "country", errors, "address.country");
-        return new Result(addressLine1, addressLine2, addressLine3, postcode, country);
+        return new ParsedAddress(addressLine1, addressLine2, addressLine3, postcode, country);
     }
 
-    private record Result(String addressLine1, String addressLine2, String addressLine3, String postcode, String country) {
+    private record ParsedAddress(String addressLine1, String addressLine2, String addressLine3, String postcode, String country) {
     }
 
     // path(field) never returns a real null (MissingNode instead), so this is safe.

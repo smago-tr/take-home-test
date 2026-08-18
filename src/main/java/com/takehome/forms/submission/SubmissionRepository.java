@@ -68,6 +68,14 @@ public class SubmissionRepository {
 		);
 	}
 
+	public Submission findById(long id) {
+		return jdbcTemplate.queryForObject(
+				"SELECT " + SELECT_COLUMNS + " FROM submissions WHERE id = ?",
+				ROW_MAPPER,
+				id
+		);
+	}
+
 	// READY and DUPLICATE_APPLICATION are terminal — everything else is a candidate for /retry.
 	public List<Submission> findNeedingRetry() {
 		return jdbcTemplate.query(
